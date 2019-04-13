@@ -3,7 +3,9 @@ package sync
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 type Rsync struct {
@@ -35,6 +37,24 @@ func (s *Rsync) Sync(destination string, includes, excludes []string) error {
 	args = append(args, prefix("--exclude=", excludes)...)
 
 	cmd := exec.Command("rsync", append(args, ".", destination)...)
+	cmd.Stdout = s.stdout
+	cmd.Stderr = s.stderr
+	return cmd.Run()
+}
+// ReverseSync executes underying rsync to synchronize files from target host
+func (s *Rsync) ReverseSync(destination string, includes, excludes []string) error {
+	args := s.args
+	rsh := fmt.Sprintf("/usr/bin/ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -p %d -i %s", s.sshPort, s.privateKeyFile)
+	args = append(args, "--rsh", rsh)
+
+	args = append(args, prefix("--include=", includes)...)
+	args = append(args, prefix("--exclude=", excludes)...)
+
+	rsyncArgs := append(args, destination + "/*", ".")
+
+	fmt.Fprintf(os.Stderr, "running rsync %s\n", strings.Join(rsyncArgs, " "))
+
+	cmd := exec.Command("rsync", rsyncArgs...)
 	cmd.Stdout = s.stdout
 	cmd.Stderr = s.stderr
 	return cmd.Run()

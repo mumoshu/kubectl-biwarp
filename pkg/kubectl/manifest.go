@@ -3,7 +3,6 @@ package kubectl
 import (
 	apiv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 var mode = int32(256)
@@ -23,6 +22,13 @@ func createPodManifest(name, image string, cmd []string, workDir string, tty, st
 	syncContainer := apiv1.Container{
 		Name:  "sync",
 		Image: "ernoaapa/sshd-rsync",
+		//Command: []string{
+		//	"/bin/sh",
+		//},
+		//Args: []string{
+		//	"-c",
+		//	"trap '' TERM ; /entrypoint.sh",
+		//},
 		Ports: []apiv1.ContainerPort{
 			{
 				Name:          "ssh",
@@ -30,18 +36,10 @@ func createPodManifest(name, image string, cmd []string, workDir string, tty, st
 				ContainerPort: 22,
 			},
 		},
-		ReadinessProbe: &apiv1.Probe{
-			Handler: apiv1.Handler{
-				TCPSocket: &apiv1.TCPSocketAction{
-					Port: intstr.IntOrString{IntVal: 22},
-				},
-			},
-		},
-		LivenessProbe: &apiv1.Probe{
-			Handler: apiv1.Handler{
-				TCPSocket: &apiv1.TCPSocketAction{
-					Port: intstr.IntOrString{IntVal: 22},
-				},
+		Env: []apiv1.EnvVar{
+			{
+				Name:  "ONE_TIME",
+				Value: "true",
 			},
 		},
 		VolumeMounts: []apiv1.VolumeMount{

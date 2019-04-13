@@ -28,7 +28,7 @@ import (
 	"github.com/ernoaapa/kubectl-warp/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	apiv1 "k8s.io/api/core/v1"
+	//apiv1 "k8s.io/api/core/v1"
 )
 
 type runOptions struct {
@@ -138,40 +138,60 @@ along with the synchronized files.`,
 			return err
 		}
 
-		pod, err := c.WaitForPod(ns, name, kubectl.ContainerRunning(containerName))
-		if err != nil {
-			if err == kubectl.ErrPodCompleted {
-				fmt.Fprintf(stderr, "Pod %s execution container were already completed. Print logs out\n", name)
-				return logOutput(c, ns, name, containerName, stdout)
-			}
-			return err
-		}
-		if pod.Status.Phase == apiv1.PodSucceeded || pod.Status.Phase == apiv1.PodFailed {
-			fmt.Fprintf(stderr, "Pod %s were already completed. Print logs to stdout\n", name)
-			return logOutput(c, ns, name, containerName, stdout)
-		}
+		//pod, err := c.WaitForPod(ns, name, kubectl.ContainerRunning(containerName))
+		//if err != nil {
+		//	if err == kubectl.ErrPodCompleted {
+		//		fmt.Fprintf(stderr, "Pod %s execution container were already completed. Print logs out\n", name)
+		//		return logOutput(c, ns, name, containerName, stdout)
+		//	}
+		//	return err
+		//}
+		//
+		//if pod.Status.Phase == apiv1.PodSucceeded || pod.Status.Phase == apiv1.PodFailed {
+		//	fmt.Fprintf(stderr, "Pod %s were already completed. Print logs to stdout\n", name)
+		//	return logOutput(c, ns, name, containerName, stdout)
+		//}
 
 		go func() {
-			if _, err := c.WaitForPod(ns, name, kubectl.ContainerRunning("sync")); err != nil {
-				fmt.Fprintf(stderr, "Error while waiting sync container to be started: %s\n", err)
-				return
-			}
-
-			fmt.Fprintln(stderr, "Start background file sync")
-			for {
-				select {
-				case <-time.After(1 * time.Second):
-					if err := s.Sync(fmt.Sprintf("root@localhost:%s", workDir), opt.Includes, opt.Excludes); err != nil {
-						fmt.Fprintf(stderr, "sync Failed: %s\n", err)
-					}
-				case <-stopChannel:
-					fmt.Fprintf(stderr, "sync: Stop %s syncing\n", name)
-					return
-				}
-			}
+			//if _, err := c.WaitForPod(ns, name, kubectl.PodTerminating()); err != nil {
+			//	fmt.Fprintf(stderr, "Error while waiting sync container to start terminating: %s\n", err)
+			//	return
+			//}
+			//
+			//fmt.Fprintln(stderr, "Finalizing")
+			//if err := s.ReverseSync(fmt.Sprintf("root@localhost:%s", workDir), opt.Includes, opt.Excludes); err != nil {
+			//	fmt.Fprintf(stderr, "sync Failed: %s\n", err)
+			//	return
+			//}
+			//for {
+			//	select {
+			//	case <-time.After(1 * time.Second):
+			//		if err := s.Sync(fmt.Sprintf("root@localhost:%s", workDir), opt.Includes, opt.Excludes); err != nil {
+			//			fmt.Fprintf(stderr, "sync Failed: %s\n", err)
+			//		}
+			//	case <-stopChannel:
+			//		fmt.Fprintf(stderr, "sync: Stop %s syncing\n", name)
+			//		return
+			//	}
+			//}
 		}()
 
-		return c.Attach(ns, name, containerName, stdin, stdout, stderr, opt.TTY)
+		if attachErr := c.Attach(ns, name, containerName, stdin, stdout, stderr, opt.TTY); attachErr != nil {
+			fmt.Fprintf(stderr, "attach err: %v", attachErr)
+		}
+
+		if _, err := c.WaitForPod(ns, name, kubectl.ContainerFinished(containerName)); err != nil {
+			fmt.Fprintf(stderr, "Error while waiting exec container to terminate: %s\n", err)
+			return err
+		}
+
+		fmt.Fprintln(stderr, "Finalizing")
+		if err := s.ReverseSync(fmt.Sprintf("root@localhost:%s", workDir), opt.Includes, opt.Excludes); err != nil {
+			fmt.Fprintf(stderr, "sync Failed: %s\n", err)
+			return err
+		}
+
+		return nil
 	},
 	// We handle errors at root.go
 	SilenceUsage:  true,

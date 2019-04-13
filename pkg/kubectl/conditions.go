@@ -70,6 +70,29 @@ func isInitContainersRunning(pod *apiv1.Pod) bool {
 	return false
 }
 
+// https://qiita.com/tkusumi/items/825ccde31fdc3d0b8425
+// "How to Determine the Pod Terminating status using REST API"
+// https://github.com/kubernetes/kubernetes/issues/22839
+func isTerminating(pod *apiv1.Pod) bool {
+	return pod.ObjectMeta.DeletionTimestamp != nil
+}
+
+// PodTerminating returns true if the pod is terminating, false if the pod is pending or running,
+// or an error in any other case
+func PodTerminating() func(watch.Event) (bool, error) {
+	return func(event watch.Event) (bool, error) {
+		switch event.Type {
+		case watch.Deleted:
+			return false, errors.NewNotFound(schema.GroupResource{Resource: "pods"}, "")
+		}
+		switch t := event.Object.(type) {
+		case *apiv1.Pod:
+			return isTerminating(t), nil
+		}
+		return false, nil
+	}
+}
+
 // ContainerRunning returns true if the pod is running and container is ready, false if the pod has not
 // yet reached those states, returns ErrPodCompleted if the pod has run to completion, or
 // an error in any other case.
@@ -102,6 +125,43 @@ func isContainerRunning(pod *apiv1.Pod, containerName string) (bool, error) {
 			} else if status.State.Terminated != nil {
 				log.Println("pod terminated")
 				return false, ErrPodCompleted
+			} else {
+				return false, fmt.Errorf("Unknown container state")
+			}
+		}
+	}
+	return false, ErrNoContainerFound
+}
+
+func ContainerFinished(containerName string) func(watch.Event) (bool, error) {
+	return func(event watch.Event) (bool, error) {
+		switch event.Type {
+		case watch.Deleted:
+			return false, errors.NewNotFound(schema.GroupResource{Resource: "pods"}, "")
+		}
+		switch t := event.Object.(type) {
+		case *apiv1.Pod:
+			switch t.Status.Phase {
+			case apiv1.PodFailed, apiv1.PodSucceeded:
+				return false, ErrPodCompleted
+			case apiv1.PodRunning:
+				return isContainerFinished(t, containerName)
+			}
+		}
+		return false, nil
+	}
+}
+
+func isContainerFinished(pod *apiv1.Pod, containerName string) (bool, error) {
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name == containerName {
+			if status.State.Waiting != nil {
+				return false, nil
+			} else if status.State.Running != nil {
+				return false, nil
+			} else if status.State.Terminated != nil {
+				log.Println("pod terminated")
+				return true, nil
 			} else {
 				return false, fmt.Errorf("Unknown container state")
 			}
